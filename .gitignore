@@ -1,0 +1,12 @@
+out/
+dados/
+*.jar
+.idea/
+*.tmp
+entrega/
+dados/
+*.jar
+*.tmp
+.idea/
+out/
+*.iml

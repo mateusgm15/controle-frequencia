@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Controle de Frequência</title>
+    <style>
+        :root { --verde:#198754; --vermelho:#dc3545; --azul:#0d6efd; --cinza:#f1f3f5; --borda:#d0d5db; }
+        * { box-sizing: border-box; }
+        body { font-family: Segoe UI, Arial, sans-serif; background: var(--cinza); margin: 0; color: #212529; }
+        header { background: var(--azul); color: #fff; padding: 16px 24px; }
+        header h1 { margin: 0; font-size: 1.4rem; }
+        main { max-width: 1000px; margin: 20px auto; padding: 0 16px; display: grid; gap: 20px; }
+        section { background: #fff; border: 1px solid var(--borda); border-radius: 8px; padding: 18px; }
+        h2 { margin: 0 0 14px; font-size: 1.1rem; }
+        .linha { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+        label { display: flex; flex-direction: column; font-size: .85rem; gap: 4px; font-weight: 600; }
+        input[type=text], input[type=date], select { padding: 8px 10px; border: 1px solid var(--borda); border-radius: 6px; font-size: 1rem; min-width: 170px; }
+        .status { display: flex; gap: 14px; padding: 8px 0; font-weight: 400; flex-direction: row; }
+        .status label { flex-direction: row; align-items: center; font-weight: 600; gap: 5px; }
+        button { padding: 9px 16px; border: 0; border-radius: 6px; font-size: .95rem; cursor: pointer; color: #fff; background: var(--azul); }
+        button.sec { background: #6c757d; }
+        button.peq { padding: 5px 10px; font-size: .8rem; }
+        button.del { background: var(--vermelho); }
+        #msg { margin-top: 10px; min-height: 1.2em; font-weight: 600; }
+        #msg.ok { color: var(--verde); } #msg.erro { color: var(--vermelho); }
+        .resumo { display: flex; gap: 12px; margin: 14px 0; flex-wrap: wrap; }
+        .card { padding: 8px 16px; border-radius: 6px; background: var(--cinza); font-weight: 600; }
+        .card.p { color: var(--verde); } .card.f { color: var(--vermelho); }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--borda); }
+        th { background: var(--cinza); font-size: .85rem; }
+        .tag { padding: 3px 10px; border-radius: 12px; color: #fff; font-size: .8rem; font-weight: 600; }
+        .tag.PRESENTE { background: var(--verde); } .tag.FALTOU { background: var(--vermelho); }
+        .vazio { text-align: center; color: #6c757d; padding: 20px; }
+        td.acoes { display: flex; gap: 6px; }
+    </style>
+</head>
+<body>
+<header><h1>📋 Controle de Frequência</h1></header>
+<main>
+
+    <section>
+        <h2>Registrar presença</h2>
+        <form id="form" class="linha" autocomplete="off">
+            <label>Nome do aluno <input type="text" id="nome" maxlength="100" required></label>
+            <label>Turma <input type="text" id="turma" list="listaTurmas" maxlength="100" required></label>
+            <datalist id="listaTurmas"></datalist>
+            <label>Data <input type="date" id="data" required></label>
+            <div class="status">
+                <label><input type="radio" name="status" value="PRESENTE" checked> Presente</label>
+                <label><input type="radio" name="status" value="FALTOU"> Faltou</label>
+            </div>
+            <button type="submit">Salvar</button>
+        </form>
+        <div id="msg"></div>
+    </section>
+
+    <section>
+        <h2>Consultar registros</h2>
+        <div class="linha">
+            <label>Dia <input type="date" id="fData"></label>
+            <label>Turma
+                <select id="fTurma"><option value="">Todas</option></select>
+            </label>
+            <button type="button" id="btnHoje" class="sec">Hoje</button>
+            <button type="button" id="btnTodos" class="sec">Todos os dias</button>
+            <button type="button" id="btnExportar">Exportar CSV</button>
+        </div>
+        <div class="resumo">
+            <div class="card">Total: <span id="total">0</span></div>
+            <div class="card p">Presentes: <span id="presentes">0</span></div>
+            <div class="card f">Faltas: <span id="faltas">0</span></div>
+        </div>
+        <table>
+            <thead><tr><th>Aluno</th><th>Turma</th><th>Data</th><th>Status</th><th>Ações</th></tr></thead>
+            <tbody id="corpo"></tbody>
+        </table>
+    </section>
+</main>
+
+<script>
+    const $ = id => document.getElementById(id);
+    const hoje = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+    const fmt = iso => iso.split('-').reverse().join('/');
+
+    function mensagem(texto, tipo) {
+        const m = $('msg'); m.textContent = texto; m.className = tipo;
+        setTimeout(() => { m.textContent = ''; m.className = ''; }, 4000);
+    }
+
+    async function carregarTurmas() {
+        const turmas = await (await fetch('/api/turmas')).json();
+        $('listaTurmas').replaceChildren(...turmas.map(t => Object.assign(document.createElement('option'), { value: t })));
+        const atual = $('fTurma').value;
+        const sel = $('fTurma');
+        sel.replaceChildren(new Option('Todas', ''), ...turmas.map(t => new Option(t, t)));
+        sel.value = turmas.includes(atual) ? atual : '';
+    }
+
+    async function carregar() {
+        const p = new URLSearchParams({ data: $('fData').value, turma: $('fTurma').value });
+        const lista = await (await fetch('/api/registros?' + p)).json();
+        const corpo = $('corpo');
+        corpo.replaceChildren();
+        if (lista.length === 0) {
+            const tr = corpo.insertRow(); const td = tr.insertCell();
+            td.colSpan = 5; td.className = 'vazio'; td.textContent = 'Nenhum registro encontrado.';
+        }
+        for (const r of lista) {
+            const tr = corpo.insertRow();
+            tr.insertCell().textContent = r.nome;
+            tr.insertCell().textContent = r.turma;
+            tr.insertCell().textContent = fmt(r.data);
+            const tag = document.createElement('span');
+            tag.className = 'tag ' + r.status; tag.textContent = r.status === 'PRESENTE' ? 'Presente' : 'Faltou';
+            tr.insertCell().appendChild(tag);
+            const ac = tr.insertCell(); ac.className = 'acoes';
+            const b1 = document.createElement('button'); b1.className = 'peq sec'; b1.textContent = 'Alternar';
+            b1.onclick = async () => {
+                await fetch('/api/registros?id=' + r.id, { method: 'PUT', body: JSON.stringify({ status: r.status === 'PRESENTE' ? 'FALTOU' : 'PRESENTE' }) });
+                carregar();
+            };
+            const b2 = document.createElement('button'); b2.className = 'peq del'; b2.textContent = 'Excluir';
+            b2.onclick = async () => {
+                if (!confirm('Excluir o registro de ' + r.nome + '?')) return;
+                await fetch('/api/registros?id=' + r.id, { method: 'DELETE' });
+                carregar(); carregarTurmas();
+            };
+            ac.append(b1, b2);
+        }
+        $('total').textContent = lista.length;
+        $('presentes').textContent = lista.filter(r => r.status === 'PRESENTE').length;
+        $('faltas').textContent = lista.filter(r => r.status === 'FALTOU').length;
+    }
+
+    $('form').addEventListener('submit', async e => {
+        e.preventDefault();
+        const corpo = {
+            nome: $('nome').value, turma: $('turma').value, data: $('data').value,
+            status: document.querySelector('input[name=status]:checked').value
+        };
+        const resp = await fetch('/api/registros', { method: 'POST', body: JSON.stringify(corpo) });
+        const json = await resp.json();
+        if (!resp.ok) { mensagem(json.erro, 'erro'); return; }
+        mensagem('Registro salvo: ' + json.nome, 'ok');
+        $('nome').value = ''; $('nome').focus();
+        $('fData').value = corpo.data;
+        await carregarTurmas();
+        $('fTurma').value = '';
+        carregar();
+    });
+
+    $('fData').addEventListener('change', carregar);
+    $('fTurma').addEventListener('change', carregar);
+    $('btnHoje').onclick = () => { $('fData').value = hoje(); carregar(); };
+    $('btnTodos').onclick = () => { $('fData').value = ''; carregar(); };
+    $('btnExportar').onclick = () => {
+        const p = new URLSearchParams({ data: $('fData').value, turma: $('fTurma').value });
+        location.href = '/api/exportar?' + p;
+    };
+
+    $('data').value = hoje();
+    $('fData').value = hoje();
+    carregarTurmas().then(carregar);
+</script>
+</body>
+</html>
